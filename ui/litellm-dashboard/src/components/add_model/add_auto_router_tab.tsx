@@ -425,7 +425,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
     setComplexityRouterConfig(config);
   };
   const jevRequestParams =
-    effectiveClassifierType(complexityRouterConfig) === "jev"
+    effectiveClassifierType(complexityRouterConfig) === "oss_classifier"
       ? {
           prompt: JEV_CONNECTION_TEST_PROMPT,
           config: buildComplexityRouterConfig(complexityRouterConfigParams),
@@ -519,6 +519,11 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
   };
 
   const handleTestConnection = () => {
+    const classifierError = getClassifierModelError(complexityRouterConfig);
+    if (effectiveClassifierType(complexityRouterConfig) === "oss_classifier" && classifierError) {
+      toast.fromError(classifierError);
+      return;
+    }
     const testTargetParams = {
       tiers: activeTierRows(complexityRouterConfig).map(
         (row) => [activeTierName(row), row.models] as [string, string[]],

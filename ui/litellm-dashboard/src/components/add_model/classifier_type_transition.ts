@@ -24,10 +24,14 @@ export const transitionClassifierType = (
   const judgeConfig = value.classifier_llm_config ?? { model: "", timeout_ms: DEFAULT_CLASSIFIER_TIMEOUT_MS };
   const nextValue: ComplexityRouterConfigValue = {
     ...value,
-    jev_classifier_config:
-      classifierType === "jev" ? value.jev_classifier_config ?? defaultJevClassifierConfig() : undefined,
-    classification_prompt: classifierType === "jev" ? undefined : value.classification_prompt,
-    classification_examples: classifierType === "jev" ? undefined : value.classification_examples,
+    opensource_classifier_config:
+      classifierType === "oss_classifier"
+        ? value.opensource_classifier_config ?? defaultJevClassifierConfig()
+        : undefined,
+    opensource_classifier_config_error:
+      classifierType === "oss_classifier" ? value.opensource_classifier_config_error : undefined,
+    classification_prompt: classifierType === "oss_classifier" ? undefined : value.classification_prompt,
+    classification_examples: classifierType === "oss_classifier" ? undefined : value.classification_examples,
     classifier_llm_config: usesLlmClassifier(classifierType)
       ? {
           ...judgeConfig,

@@ -24,10 +24,10 @@ describe("transitionClassifierType", () => {
       plan_mode_min_tier: "NON_REASONING",
       adaptive: true,
     };
-    const jev = transitionClassifierType(initial, "jev");
+    const jev = transitionClassifierType(initial, "oss_classifier");
     const expectedJevConfig = {
-      classifier_type: "jev",
-      jev_classifier_config: { model: "jev-latest", timeout_ms: 3000 },
+      classifier_type: "oss_classifier",
+      opensource_classifier_config: { provider: "jev", model: "jev-latest", timeout_ms: 3000 },
       classifier_context_window_size: 8,
       classifier_context_budget_chars: 16000,
       classifier_context_include_assistant_turns: true,
@@ -42,12 +42,12 @@ describe("transitionClassifierType", () => {
     expect(jev.classification_prompt).toBeUndefined();
     expect(jev.classification_examples).toBeUndefined();
     const custom = applyTierSetAction(jev, [], { kind: "patch", id: "SIMPLE", patch: { name: "QUICK" } }).value;
-    expect(effectiveClassifierType(custom)).toBe("jev");
+    expect(effectiveClassifierType(custom)).toBe("oss_classifier");
     const restored = applyTierSetAction(custom, [], { kind: "restore" }).value;
-    expect(effectiveClassifierType(restored)).toBe("jev");
-    expect(restored.jev_classifier_config).toEqual(jev.jev_classifier_config);
+    expect(effectiveClassifierType(restored)).toBe("oss_classifier");
+    expect(restored.opensource_classifier_config).toEqual(jev.opensource_classifier_config);
     const llm = transitionClassifierType(custom, "llm");
-    expect(llm.jev_classifier_config).toBeUndefined();
+    expect(llm.opensource_classifier_config).toBeUndefined();
     expect(llm.classifier_llm_config).toMatchObject({ model: "" });
     expect(llm.custom_tier_set).toEqual(custom.custom_tier_set);
     expect(llm.classifier_context_window_size).toBe(8);

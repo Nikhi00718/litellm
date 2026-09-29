@@ -53,7 +53,7 @@ function Form({
 }
 
 describe("Auto-router classifier selection", () => {
-  it.each(["heuristic", "heuristic_v2", "llm", "heuristic_first", "hybrid", "jev"] as const)(
+  it.each(["heuristic", "heuristic_v2", "llm", "heuristic_first", "hybrid", "oss_classifier"] as const)(
     "shows saved %s without changing its configuration",
     async (classifier_type) => {
       const onChange = vi.fn();
@@ -68,7 +68,7 @@ describe("Auto-router classifier selection", () => {
         llm: "LLM",
         heuristic_first: "LLM",
         hybrid: "LLM",
-        jev: "Jev",
+        oss_classifier: "OSS Classifier",
       }[classifier_type];
       expect(screen.getByRole("radio", { name: new RegExp(`^${family}$`) })).toBeChecked();
       fireEvent.click(screen.getByRole("radio", { name: new RegExp(`^${family}$`) }));
@@ -157,7 +157,7 @@ describe("Auto-router classifier selection", () => {
   it("shows Jev's single Complexity approach without changing saved configuration", () => {
     const onChange = vi.fn();
     renderWithProviders(
-      <AutoRouterClassifierTabs value={{ ...initial, classifier_type: "jev" }} onChange={onChange}>
+      <AutoRouterClassifierTabs value={{ ...initial, classifier_type: "oss_classifier" }} onChange={onChange}>
         Existing settings
       </AutoRouterClassifierTabs>,
     );

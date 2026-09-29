@@ -133,7 +133,7 @@ const AutoRouterClassifierTabs: React.FC<AutoRouterClassifierTabsProps> = ({ val
     hybrid: "llm",
     capability: "llm",
     llm_v2: "llm",
-    jev: "jev",
+    oss_classifier: "oss_classifier",
     custom: "custom",
   };
   const family = familyByType[classifierType];
@@ -146,7 +146,7 @@ const AutoRouterClassifierTabs: React.FC<AutoRouterClassifierTabsProps> = ({ val
     if (next === family) return;
     if (next === "heuristics") changeType("heuristic");
     if (next === "llm") changeType("llm");
-    if (next === "jev") changeType("jev");
+    if (next === "oss_classifier") changeType("oss_classifier");
   };
   const approachLabels: Partial<Record<ClassifierType, string>> = { capability: "Capability", llm_v2: "Fuse v2" };
   const approachDescription: Partial<Record<ClassifierType, string>> = {
@@ -164,7 +164,11 @@ const AutoRouterClassifierTabs: React.FC<AutoRouterClassifierTabsProps> = ({ val
           {[
             { value: "heuristics", label: "Heuristics", description: "Classify locally, with no API call" },
             { value: "llm", label: "LLM", description: "Use a judge model to choose a solver" },
-            { value: "jev", label: "Jev", description: "Use TypeSafe System One Choice to choose a tier" },
+            {
+              value: "oss_classifier",
+              label: "OSS Classifier",
+              description: "Use Jev or open-source Laya to choose a tier",
+            },
           ].map((option) => (
             <Label
               key={option.value}
@@ -224,7 +228,7 @@ const AutoRouterClassifierTabs: React.FC<AutoRouterClassifierTabsProps> = ({ val
           </p>
         </div>
       )}
-      {(family === "llm" || family === "jev") && (
+      {(family === "llm" || family === "oss_classifier") && (
         <div className="space-y-2">
           <Label htmlFor={`${id}-approach`}>Routing approach</Label>
           <ClassifierMenu

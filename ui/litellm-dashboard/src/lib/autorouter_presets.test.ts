@@ -859,30 +859,33 @@ describe("autorouter_presets", () => {
   });
 
   describe("buildPresetPrefill", () => {
-    it("preserves JEV settings and drops inactive classifier settings when prefilling", () => {
+    it.each(["oss_classifier", "jev"] as const)("prefills canonical OSS settings from %s presets", (classifierType) => {
+      const classifierConfig = { model: "jev-test", timeout_ms: 4000, circuit_breaker_enabled: false };
       const config = {
         tiers: { SIMPLE: ["fast"], MEDIUM: [], COMPLEX: [], REASONING: [] },
-        classifier_type: "jev" as const,
+        classifier_type: classifierType,
         classification_mode: "every_request" as const,
         session_affinity: false,
         deployment_affinity: true,
         modality_routing: false,
         modality_pin_override: false,
-        jev_classifier_config: { model: "jev-test", timeout_ms: 4000, circuit_breaker_enabled: false },
+        ...(classifierType === "jev"
+          ? { jev_classifier_config: { ...classifierConfig, provider: "typesafe" } }
+          : { opensource_classifier_config: classifierConfig }),
         classifier_llm_config: { model: "stale-judge", timeout_ms: 6000 },
         classifier_context_window_size: 6,
       };
       const prefill = buildPresetPrefill(config, groupsOnly(["fast"]));
       const expectedJevConfig = {
-        classifier_type: "jev",
-        jev_classifier_config: config.jev_classifier_config,
+        classifier_type: "oss_classifier",
+        opensource_classifier_config: { ...classifierConfig, provider: "jev" },
         classifier_context_window_size: 6,
         classifier_llm_config: undefined,
       };
       expect(prefill.complexityRouterConfig).toMatchObject(expectedJevConfig);
       const llmConfig = { ...config, classifier_type: "llm" as const };
       const llmPrefill = buildPresetPrefill(llmConfig, groupsOnly(["fast"]));
-      expect(llmPrefill.complexityRouterConfig.jev_classifier_config).toBeUndefined();
+      expect(llmPrefill.complexityRouterConfig.opensource_classifier_config).toBeUndefined();
       expect(llmPrefill.complexityRouterConfig.classifier_llm_config).toEqual(config.classifier_llm_config);
     });
 

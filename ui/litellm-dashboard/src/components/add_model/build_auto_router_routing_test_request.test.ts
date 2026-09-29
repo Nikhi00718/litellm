@@ -21,32 +21,55 @@ const params = {
 };
 
 describe("buildAutoRouterRoutingTestRequest", () => {
+  it.each(["object", "json"])("probes an older saved router using only canonical fields: %s", (format) => {
+    const legacy = {
+      classifier_type: "jev",
+      tiers: CONFIG.tiers,
+      jev_classifier_config: { provider: "typesafe", model: "jev-custom", api_key: "masked-key" },
+    };
+    const request = buildSavedJevConnectionTestRequest(format === "json" ? JSON.stringify(legacy) : legacy, "saved-id");
+    expect(request?.complexity_router_config).toEqual({
+      classifier_type: "oss_classifier",
+      tiers: CONFIG.tiers,
+      opensource_classifier_config: { provider: "jev", model: "jev-custom", timeout_ms: 3000 },
+    });
+    expect(request?.saved_model_id).toBe("saved-id");
+  });
+
+  it.each([
+    { opensource_classifier_config: null, jev_classifier_config: null },
+    { opensource_classifier_config: { provider: "TypeSafe" } },
+  ])("does not probe conflicting aliases or unknown providers: %j", (settings) => {
+    const config = { classifier_type: "oss_classifier", tiers: CONFIG.tiers, ...settings };
+    expect(buildSavedJevConnectionTestRequest(config, "saved-id")).toBeUndefined();
+  });
+
   it("references the saved deployment without copying masked credentials or client overrides", () => {
     const request = buildSavedJevConnectionTestRequest(
       {
-        classifier_type: "jev",
+        classifier_type: "oss_classifier",
         tiers: CONFIG.tiers,
-        jev_classifier_config: { api_key: "sk-masked****", api_base: "https://custom-jev.test" },
+        opensource_classifier_config: { api_key: "sk-masked****", api_base: "https://custom-jev.test" },
       },
       "saved-id",
     );
     const expectedRequest = {
       prompt: JEV_CONNECTION_TEST_PROMPT,
       complexity_router_config: {
-        classifier_type: "jev",
+        classifier_type: "oss_classifier",
         tiers: CONFIG.tiers,
-        jev_classifier_config: defaultJevClassifierConfig(),
+        opensource_classifier_config: defaultJevClassifierConfig(),
       },
       saved_model_id: "saved-id",
     };
     expect(request).toEqual(expectedRequest);
-    expect(request?.complexity_router_config.jev_classifier_config).not.toHaveProperty("api_key");
-    expect(request?.complexity_router_config.jev_classifier_config).not.toHaveProperty("api_base");
+    expect(request?.complexity_router_config.opensource_classifier_config).not.toHaveProperty("api_key");
+    expect(request?.complexity_router_config.opensource_classifier_config).not.toHaveProperty("api_base");
   });
   it.each(["object", "json"])("probes saved JEV %s configuration with custom tiers and team context", (format) => {
     const config = {
-      classifier_type: "jev",
-      jev_classifier_config: { model: "jev-test", timeout_ms: 900 },
+      classifier_type: "oss_classifier",
+      opensource_classifier_config: { provider: "jev", model: "jev-test", timeout_ms: 900 },
       tiers: { QUICK: ["fast"], DEEP: ["strong"] },
       tier_definitions: { QUICK: "Simple questions", DEEP: "Complex questions" },
       fallback_tier: "DEEP",
@@ -62,12 +85,39 @@ describe("buildAutoRouterRoutingTestRequest", () => {
       buildSavedJevConnectionTestRequest(format === "json" ? JSON.stringify(config) : config, "saved-id", "team-1"),
     ).toEqual(expectedRequest);
   });
-  it.each([undefined, null, "not json", "[]", {}, { classifier_type: "llm", tiers: {} }, { classifier_type: "jev" }])(
-    "does not build a JEV probe for invalid or other classifier configurations: %j",
-    (config) => {
-      expect(buildSavedJevConnectionTestRequest(config, "saved-id")).toBeUndefined();
-    },
-  );
+  it.each([
+    undefined,
+    null,
+    "not json",
+    "[]",
+    {},
+    { classifier_type: "llm", tiers: {} },
+    { classifier_type: "oss_classifier" },
+  ])("does not build a JEV probe for invalid or other classifier configurations: %j", (config) => {
+    expect(buildSavedJevConnectionTestRequest(config, "saved-id")).toBeUndefined();
+  });
+  it("sends explicit connection resets in new probes and resolves saved probes on the server", () => {
+    const config = {
+      ...CONFIG,
+      classifier_type: "oss_classifier" as const,
+      opensource_classifier_config: {
+        provider: "laya" as const,
+        model: "english",
+        timeout_ms: 3000,
+        api_base: null,
+        api_key: null,
+      },
+    };
+    const request = buildAutoRouterRoutingTestRequest({ ...params, config });
+    expect(JSON.parse(JSON.stringify(request)).complexity_router_config.opensource_classifier_config).toEqual(
+      config.opensource_classifier_config,
+    );
+    const savedRequest = buildSavedJevConnectionTestRequest(config, "saved-laya");
+    expect(savedRequest?.saved_model_id).toBe("saved-laya");
+    expect(savedRequest?.complexity_router_config.opensource_classifier_config).not.toHaveProperty("api_base");
+    expect(savedRequest?.complexity_router_config.opensource_classifier_config).not.toHaveProperty("api_key");
+  });
+
   it("sends the prompt with the config being edited", () => {
     const request = buildAutoRouterRoutingTestRequest(params);
 

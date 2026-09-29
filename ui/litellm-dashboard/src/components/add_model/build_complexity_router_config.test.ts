@@ -58,7 +58,7 @@ const baseParams: BuildComplexityRouterConfigParams = {
 
 describe("buildComplexityRouterConfig", () => {
   it("accepts built-in JEV defaults without an LLM classifier model", () => {
-    expect(getClassifierModelError({ classifier_type: "jev" })).toBeNull();
+    expect(getClassifierModelError({ classifier_type: "oss_classifier" })).toBeNull();
   });
 
   it.each([
@@ -72,16 +72,28 @@ describe("buildComplexityRouterConfig", () => {
   ])("rejects invalid JEV settings before saving or testing: %j", (patch) => {
     expect(
       getClassifierModelError({
-        classifier_type: "jev",
-        jev_classifier_config: { model: "jev-latest", timeout_ms: 3000, ...patch },
+        classifier_type: "oss_classifier",
+        opensource_classifier_config: { model: "jev-latest", timeout_ms: 3000, ...patch },
       }),
-    ).toBe("Enter a JEV model, a positive whole-number timeout and a positive cooldown");
+    ).toBe("Enter a decision model, a positive whole-number timeout and a positive cooldown");
   });
+
+  it.each(["", "auto", "unrecognized-checkpoint"])(
+    "blocks unsupported Laya checkpoint %s before saving or testing",
+    (model) => {
+      expect(
+        getClassifierModelError({
+          classifier_type: "oss_classifier",
+          opensource_classifier_config: { provider: "laya", model, timeout_ms: 3000 },
+        }),
+      ).not.toBeNull();
+    },
+  );
 
   it.each([false, true])("serializes JEV with shared context and no LLM config, custom tiers: %s", (custom) => {
     const params: BuildComplexityRouterConfigParams = {
       ...baseParams,
-      classifierType: "jev",
+      classifierType: "oss_classifier",
       jevClassifierConfig: {
         model: "jev-test",
         timeout_ms: 4500,
@@ -108,15 +120,16 @@ describe("buildComplexityRouterConfig", () => {
       }),
     };
     const config = buildComplexityRouterConfig(params);
-    expect(config.classifier_type).toBe("jev");
+    expect(config.classifier_type).toBe("oss_classifier");
     const expectedJevConfig = {
+      provider: "jev",
       model: "jev-test",
       timeout_ms: 4500,
       instructions: "Choose the configured tier",
       circuit_breaker_enabled: false,
       circuit_breaker_cooldown_seconds: 12.5,
     };
-    expect(config.jev_classifier_config).toEqual(expectedJevConfig);
+    expect(config.opensource_classifier_config).toEqual(expectedJevConfig);
     expect(config.classifier_context_window_size).toBe(4);
     expect(config.classifier_context_budget_chars).toBe(2000);
     expect(config.classifier_context_per_turn_chars).toBe(450);
@@ -136,18 +149,18 @@ describe("buildComplexityRouterConfig", () => {
   it("omits blank JEV instructions and ignores stale JEV settings when saving LLM", () => {
     const jev = buildComplexityRouterConfig({
       ...baseParams,
-      classifierType: "jev",
+      classifierType: "oss_classifier",
       jevClassifierConfig: { model: "jev-latest", timeout_ms: 3000, instructions: "  " },
     });
-    expect(jev.jev_classifier_config).toEqual({ model: "jev-latest", timeout_ms: 3000 });
+    expect(jev.opensource_classifier_config).toEqual({ provider: "jev", model: "jev-latest", timeout_ms: 3000 });
     const llmParams: BuildComplexityRouterConfigParams = {
       ...baseParams,
       classifierType: "llm",
       classifierLlmConfig: { model: "judge", timeout_ms: 1000 },
-      jevClassifierConfig: jev.jev_classifier_config,
+      jevClassifierConfig: jev.opensource_classifier_config,
     };
     const llm = buildComplexityRouterConfig(llmParams);
-    expect(llm).not.toHaveProperty("jev_classifier_config");
+    expect(llm).not.toHaveProperty("opensource_classifier_config");
   });
 
   it("forwards preset references and explicit overrides without materializing absent text on create", () => {

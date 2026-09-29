@@ -1,3 +1,5 @@
+import { hydrateClassifierType } from "@/components/add_model/classifier_types";
+import { readStoredOpenSourceClassifierConfig } from "@/components/add_model/jev_classifier_config";
 import {
   ComplexityRouterConfigPayload,
   hydrateTierLabels,
@@ -299,11 +301,17 @@ export const buildEmptyPrefill = (): PresetPrefill => ({
 // already confirmed every required model resolves, so falling back to the preset's own string
 // when a model somehow doesn't resolve is unreachable in practice, not a silent-failure path.
 export const buildPresetPrefill = (
-  config: ComplexityRouterConfigPayload,
+  config: Omit<ComplexityRouterConfigPayload, "classifier_type"> & {
+    classifier_type: ClassifierType | "jev";
+    jev_classifier_config?: unknown;
+  },
   availability: ModelAvailability,
 ): PresetPrefill => {
   const resolve = (model: string): string => resolveAvailableModel(model, availability) ?? model;
   const resolveTier = (models: string[]): string[] => models.map(resolve);
+  const classifierType = hydrateClassifierType(config.classifier_type);
+  const openSource: ReturnType<typeof readStoredOpenSourceClassifierConfig> =
+    classifierType === "oss_classifier" ? readStoredOpenSourceClassifierConfig(config) : {};
   // Params key on the model name the preset spells while every tier entry is rewritten to the
   // caller's registered spelling, so the keys have to be rewritten the same way. Otherwise
   // serializeTierModelConfigs drops them for naming a model the tier no longer holds.
@@ -334,11 +342,12 @@ export const buildPresetPrefill = (
       },
       tier_model_params: resolveParamKeys(hydrateTierModelParams(config.tiers, config.tier_model_configs)),
       tier_labels: hydrateTierLabels(config.tier_labels),
-      classifier_type: config.classifier_type,
+      classifier_type: classifierType,
       heuristic_v2_success_threshold: config.heuristic_v2_success_threshold,
-      jev_classifier_config: config.classifier_type === "jev" ? config.jev_classifier_config : undefined,
+      opensource_classifier_config: openSource.config,
+      opensource_classifier_config_error: openSource.error,
       classifier_llm_config:
-        config.classifier_type !== "jev" && config.classifier_llm_config
+        classifierType !== "oss_classifier" && config.classifier_llm_config
           ? { ...config.classifier_llm_config, model: resolve(config.classifier_llm_config.model) }
           : undefined,
       classifier_context_window_size: config.classifier_context_window_size,

@@ -52,10 +52,10 @@ const ClassifierTypeRadios: React.FC<ClassifierTypeRadiosProps> = ({ value, clas
           </span>
         </Label>
         <Label className="items-start font-normal leading-normal">
-          <RadioGroupItem value="jev" className="mt-0.5" />
+          <RadioGroupItem value="oss_classifier" className="mt-0.5" />
           <span>
-            <strong className="font-semibold">Jev Classifier</strong>{" "}
-            <span className="text-muted-foreground">uses TypeSafe System One Choice to decide the tier</span>
+            <strong className="font-semibold">OSS Classifier</strong>{" "}
+            <span className="text-muted-foreground">uses Jev or open-source Laya to decide the tier</span>
           </span>
         </Label>
         <SimpleTooltip content={scorerLockedReason}>

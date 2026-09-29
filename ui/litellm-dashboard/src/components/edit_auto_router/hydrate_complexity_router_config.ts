@@ -1,4 +1,5 @@
-import { defaultJevClassifierConfig, jevClassifierConfigSchema } from "../add_model/jev_classifier_config";
+import { readStoredOpenSourceClassifierConfig } from "../add_model/jev_classifier_config";
+import { hydrateClassifierType } from "../add_model/classifier_types";
 import { capabilitySettingsSchema, fuseSettingsSchema } from "../add_model/forecast_classifier_config";
 import type { StoredComplexityRouterConfig } from "../add_model/build_complexity_router_config";
 import {
@@ -58,6 +59,9 @@ export const hydrateComplexityRouterConfig = (
   const { tiers: hydratedTiers, enable_non_reasoning_tier } = builtIn;
   const custom_tier_set = hydrateCustomTierSet(parsedConfig);
   const activeTiers = { ...builtIn, custom_tier_set };
+  const classifierType = hydrateClassifierType(parsedConfig.classifier_type);
+  const openSource: ReturnType<typeof readStoredOpenSourceClassifierConfig> =
+    classifierType === "oss_classifier" ? readStoredOpenSourceClassifierConfig(parsedConfig) : {};
 
   return {
     tiers: hydratedTiers,
@@ -70,19 +74,16 @@ export const hydrateComplexityRouterConfig = (
     default_model: hydratePinnedDefaultModel(parsedConfig.default_model, complexityRouterDefaultModel, activeTiers),
     plan_mode_min_tier: hydratePlanModeMinTier(parsedConfig.plan_mode_min_tier, custom_tier_set),
     tier_labels: hydrateTierLabels(parsedConfig.tier_labels),
-    classifier_type: parsedConfig.classifier_type || "heuristic",
+    classifier_type: classifierType,
     heuristic_v2_success_threshold:
       typeof parsedConfig.heuristic_v2_success_threshold === "number"
         ? parsedConfig.heuristic_v2_success_threshold
         : undefined,
     capability_classifier_config: capabilitySettingsSchema.safeParse(parsedConfig.capability_classifier_config).data,
     llm_v2_config: fuseSettingsSchema.safeParse(parsedConfig.llm_v2_config).data,
-    classifier_llm_config: parsedConfig.classifier_type === "jev" ? undefined : parsedConfig.classifier_llm_config,
-    jev_classifier_config:
-      parsedConfig.classifier_type === "jev"
-        ? jevClassifierConfigSchema.safeParse(parsedConfig.jev_classifier_config ?? {}).data ??
-          defaultJevClassifierConfig()
-        : undefined,
+    classifier_llm_config: classifierType === "oss_classifier" ? undefined : parsedConfig.classifier_llm_config,
+    opensource_classifier_config: openSource.config,
+    opensource_classifier_config_error: openSource.error,
     classifier_context_window_size:
       typeof parsedConfig.classifier_context_window_size === "number"
         ? parsedConfig.classifier_context_window_size

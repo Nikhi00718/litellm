@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { transitionClassifierType } from "../add_model/classifier_type_transition";
 import { effectiveClassifierType } from "../add_model/ComplexityRouterConfig";
+import { getClassifierModelError } from "../add_model/build_complexity_router_config";
 
 import {
   MANAGED_COMPLEXITY_ROUTER_KEYS,
@@ -48,11 +49,50 @@ const hydratedState: KeywordMatchingState = {
 };
 
 describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
+  it.each([undefined, "typesafe", "laya"])(
+    "migrates a saved legacy classifier without forwarding hidden connections: %s",
+    (provider) => {
+      const legacyConfig = {
+        provider,
+        model: provider === "laya" ? "english" : "jev-custom",
+        timeout_ms: 4200,
+        instructions: "Retain these instructions",
+        api_base: "https://saved.test",
+        api_key: "masked-key",
+      };
+      const stored = { classifier_type: "jev" as const, tiers: FORM_VALUE.tiers, jev_classifier_config: legacyConfig };
+      const hydrated = hydrateComplexityRouterConfig(stored, undefined);
+      expect(hydrated.classifier_type).toBe("oss_classifier");
+      expect(getClassifierModelError(hydrated)).toBeNull();
+      const saved = buildUpdatedComplexityRouterConfig(JSON.stringify(stored), hydrated);
+      expect(saved.classifier_type).toBe("oss_classifier");
+      const expectedConfig = {
+        provider: provider === "laya" ? "laya" : "jev",
+        model: legacyConfig.model,
+        timeout_ms: 4200,
+        instructions: legacyConfig.instructions,
+      };
+      expect(saved.opensource_classifier_config).toEqual(expectedConfig);
+      expect(saved).not.toHaveProperty("jev_classifier_config");
+    },
+  );
+
+  it.each([
+    { opensource_classifier_config: null, jev_classifier_config: null },
+    { opensource_classifier_config: { provider: "unknown" } },
+  ])("blocks an ambiguous or unsupported saved configuration: %j", (settings) => {
+    const stored = { classifier_type: "oss_classifier" as const, tiers: FORM_VALUE.tiers, ...settings };
+    const hydrated = hydrateComplexityRouterConfig(stored, undefined);
+    expect(hydrated.opensource_classifier_config).toBeUndefined();
+    expect(getClassifierModelError(hydrated)).toBe(hydrated.opensource_classifier_config_error);
+    expect(hydrated.opensource_classifier_config_error).toBeTruthy();
+  });
+
   it.each([false, true])("omits masked JEV credentials from dashboard saves, edited: %s", (edited) => {
     const stored = {
-      classifier_type: "jev" as const,
+      classifier_type: "oss_classifier" as const,
       tiers: FORM_VALUE.tiers,
-      jev_classifier_config: {
+      opensource_classifier_config: {
         model: "jev-configured",
         timeout_ms: 6100,
         instructions: "Existing instructions",
@@ -61,16 +101,17 @@ describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
       },
     };
     const hydrated = hydrateComplexityRouterConfig(stored, undefined);
-    expect(hydrated.jev_classifier_config).not.toHaveProperty("api_key");
-    expect(hydrated.jev_classifier_config).not.toHaveProperty("api_base");
+    expect(hydrated.opensource_classifier_config).not.toHaveProperty("api_key");
+    expect(hydrated.opensource_classifier_config).not.toHaveProperty("api_base");
     const value = edited
       ? {
           ...hydrated,
-          jev_classifier_config: { model: "jev-updated", timeout_ms: 8100, instructions: "" },
+          opensource_classifier_config: { model: "jev-updated", timeout_ms: 8100, instructions: "" },
         }
       : hydrated;
     const saved = buildUpdatedComplexityRouterConfig(stored, value);
-    expect(saved.jev_classifier_config).toEqual({
+    expect(saved.opensource_classifier_config).toEqual({
+      provider: "jev",
       ...(edited
         ? { model: "jev-updated", timeout_ms: 8100 }
         : { model: "jev-configured", timeout_ms: 6100, instructions: "Existing instructions" }),
@@ -78,14 +119,38 @@ describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
     for (const classifierType of ["llm", "heuristic"] as const) {
       expect(
         buildUpdatedComplexityRouterConfig(saved, transitionClassifierType(value, classifierType)),
-      ).not.toHaveProperty("jev_classifier_config");
+      ).not.toHaveProperty("opensource_classifier_config");
     }
+  });
+
+  it("round trips the Laya provider and checkpoint without writing stored connection fields", () => {
+    const stored = {
+      classifier_type: "oss_classifier" as const,
+      tiers: FORM_VALUE.tiers,
+      opensource_classifier_config: {
+        provider: "laya",
+        model: "typed-decisions",
+        timeout_ms: 6000,
+        api_base: "https://laya.test",
+        api_key: "sk-masked****",
+      },
+    };
+    const hydrated = hydrateComplexityRouterConfig(stored, undefined);
+    const saved = buildUpdatedComplexityRouterConfig(stored, hydrated);
+    expect(saved.opensource_classifier_config).toEqual({
+      provider: "laya",
+      model: "typed-decisions",
+      timeout_ms: 6000,
+    });
+    expect(hydrateComplexityRouterConfig(saved, undefined).opensource_classifier_config).toEqual(
+      hydrated.opensource_classifier_config,
+    );
   });
 
   it("hydrates nullable JEV instructions without resetting the server configuration", () => {
     const stored = {
-      classifier_type: "jev" as const,
-      jev_classifier_config: {
+      classifier_type: "oss_classifier" as const,
+      opensource_classifier_config: {
         model: "jev-configured",
         timeout_ms: 6100,
         instructions: null,
@@ -94,18 +159,20 @@ describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
       tiers: FORM_VALUE.tiers,
     };
     const saved = buildUpdatedComplexityRouterConfig(stored, hydrateComplexityRouterConfig(stored, undefined));
-    expect(saved.jev_classifier_config).toEqual({
+    const expectedConfig = {
+      provider: "jev",
       model: "jev-configured",
       timeout_ms: 6100,
       circuit_breaker_enabled: false,
-    });
+    };
+    expect(saved.opensource_classifier_config).toEqual(expectedConfig);
   });
   it.each([false, true])("round trips JEV settings and preserves unmanaged fields, custom: %s", (custom) => {
     const stored = {
       ...(custom ? storedCustomConfig() : STORED),
       classifier_llm_config: { model: "stale-judge", timeout_ms: 3000 },
-      classifier_type: "jev" as const,
-      jev_classifier_config: {
+      classifier_type: "oss_classifier" as const,
+      opensource_classifier_config: {
         model: "jev-test",
         timeout_ms: 4100,
         instructions: "Judge the request",
@@ -119,14 +186,14 @@ describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
       some_future_backend_key: { nested: true },
     };
     const hydrated = hydrateComplexityRouterConfig(stored, undefined);
-    expect(effectiveClassifierType(hydrated)).toBe("jev");
+    expect(effectiveClassifierType(hydrated)).toBe("oss_classifier");
     expect(hydrated.classifier_llm_config).toBeUndefined();
-    expect(hydrated.jev_classifier_config).toEqual(stored.jev_classifier_config);
+    expect(hydrated.opensource_classifier_config).toEqual({ ...stored.opensource_classifier_config, provider: "jev" });
     expect(hydrated.classifier_context_per_turn_chars).toBe(450);
     const saved = buildUpdatedComplexityRouterConfig(stored, hydrated);
     const expectedSavedConfig = {
-      classifier_type: "jev",
-      jev_classifier_config: stored.jev_classifier_config,
+      classifier_type: "oss_classifier",
+      opensource_classifier_config: { ...stored.opensource_classifier_config, provider: "jev" },
       classifier_context_window_size: 7,
       classifier_context_budget_chars: 9000,
       classifier_context_per_turn_chars: 450,
@@ -136,11 +203,11 @@ describe("buildUpdatedComplexityRouterConfig keyword matching", () => {
     expect(saved).toMatchObject(expectedSavedConfig);
     expect(saved).not.toHaveProperty("classifier_llm_config");
     const reloaded = hydrateComplexityRouterConfig(saved, undefined);
-    expect(reloaded.jev_classifier_config).toEqual(hydrated.jev_classifier_config);
+    expect(reloaded.opensource_classifier_config).toEqual(hydrated.opensource_classifier_config);
     expect(reloaded.classifier_context_per_turn_chars).toBe(450);
-    expect(effectiveClassifierType(reloaded)).toBe("jev");
+    expect(effectiveClassifierType(reloaded)).toBe("oss_classifier");
     const llm = buildUpdatedComplexityRouterConfig(saved, transitionClassifierType(reloaded, "llm"));
-    expect(llm).not.toHaveProperty("jev_classifier_config");
+    expect(llm).not.toHaveProperty("opensource_classifier_config");
   });
 
   it.each([0, 0.92, 1])("hydrates and saves a success threshold of %s without changing the artifact", (threshold) => {
@@ -362,7 +429,7 @@ describe("capability classifier configuration", () => {
 });
 
 describe("buildUpdatedComplexityRouterConfig classifier context window", () => {
-  it.each(["llm", "jev"] as const)(
+  it.each(["llm", "oss_classifier"] as const)(
     "drops the stored %s per-turn bound when switching to heuristic",
     (classifier_type) => {
       const stored = { ...STORED_LLM, classifier_type };
@@ -384,16 +451,19 @@ describe("buildUpdatedComplexityRouterConfig classifier context window", () => {
     expect(saved).not.toHaveProperty("classifier_context_per_turn_chars");
   });
 
-  it.each(["llm", "jev"] as const)("saves the form's per-turn bound over the stored %s bound", (classifier_type) => {
-    const formValue = {
-      ...hydrateComplexityRouterConfig({ ...STORED_LLM, classifier_type }, undefined),
-      classifier_context_per_turn_chars: 600,
-    };
-    const saved = buildUpdatedComplexityRouterConfig(STORED_LLM, formValue);
+  it.each(["llm", "oss_classifier"] as const)(
+    "saves the form's per-turn bound over the stored %s bound",
+    (classifier_type) => {
+      const formValue = {
+        ...hydrateComplexityRouterConfig({ ...STORED_LLM, classifier_type }, undefined),
+        classifier_context_per_turn_chars: 600,
+      };
+      const saved = buildUpdatedComplexityRouterConfig(STORED_LLM, formValue);
 
-    expect(saved.classifier_context_per_turn_chars).toBe(600);
-    expect(hydrateComplexityRouterConfig(saved, undefined).classifier_context_per_turn_chars).toBe(600);
-  });
+      expect(saved.classifier_context_per_turn_chars).toBe(600);
+      expect(hydrateComplexityRouterConfig(saved, undefined).classifier_context_per_turn_chars).toBe(600);
+    },
+  );
 
   it("round-trips an untouched edit without changing the classifier context values", () => {
     const formValue = {
@@ -882,6 +952,7 @@ describe("managed keys survive an untouched open-and-save", () => {
     "tier_definitions",
     "fallback_tier",
     "hybrid_boundary_margin",
+    "opensource_classifier_config",
     "jev_classifier_config",
     "classifier_plugin_timeout_ms",
   ]);

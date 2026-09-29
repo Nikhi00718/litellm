@@ -15,7 +15,7 @@ vi.mock(
 );
 
 const configParams: BuildComplexityRouterConfigParams = {
-  classifierType: "jev",
+  classifierType: "oss_classifier",
   jevClassifierConfig: { model: "jev-latest", timeout_ms: 3000 },
   tiers: { SIMPLE: ["fast"], MEDIUM: ["mid"], COMPLEX: ["strong"], REASONING: ["reasoner"] },
   defaultModel: undefined,
@@ -48,7 +48,7 @@ const config = buildComplexityRouterConfig(configParams);
 const request = buildSavedJevConnectionTestRequest(
   JSON.stringify({
     ...config,
-    jev_classifier_config: { api_key: "sk-masked****", api_base: "https://custom-jev.test" },
+    opensource_classifier_config: { api_key: "sk-masked****", api_base: "https://custom-jev.test" },
   }),
   "saved-id",
 );
@@ -107,13 +107,41 @@ describe("JEV network probes", () => {
       expect(JSON.parse(String(routingCall?.[1]?.body))).toEqual(expectedRequest);
       expect(fetchMock).toHaveBeenCalledTimes(5);
       expect(screen.getAllByTestId("test-status-success")).toHaveLength(4);
-      expect(screen.getByRole("status", { name: "Jev connection" })).toHaveTextContent(
+      expect(screen.getByRole("status", { name: "OSS classifier connection" })).toHaveTextContent(
         cause === "jev_classifier"
-          ? "Jev classification succeeded"
-          : `Jev was not reached successfully (routing cause: ${cause})`,
+          ? "OSS classifier classification succeeded"
+          : `OSS classifier was not reached successfully (routing cause: ${cause})`,
       );
     },
   );
+
+  it("probes a saved Laya classifier using its provider and checkpoint", async () => {
+    const layaRequest = buildSavedJevConnectionTestRequest(
+      { ...config, opensource_classifier_config: { provider: "laya", model: "english", api_key: "masked-key" } },
+      "saved-laya",
+    );
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ...response("jev_classifier"),
+            routing_decision: { ...response("jev_classifier").routing_decision, classifier_model: "laya/english" },
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<AutoRouterConnectionTest accessToken="token" targets={[]} jevRequest={layaRequest} />);
+    expect(await screen.findByText("OSS classifier classification succeeded")).toBeInTheDocument();
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      saved_model_id: "saved-laya",
+      complexity_router_config: {
+        opensource_classifier_config: { provider: "laya", model: "english", timeout_ms: 3000 },
+      },
+    });
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).complexity_router_config.opensource_classifier_config,
+    ).not.toHaveProperty("api_key");
+  });
 
   it("shows routing diagnostics from the real networking response", async () => {
     vi.stubGlobal(
@@ -131,7 +159,7 @@ describe("JEV network probes", () => {
     );
     fireEvent.change(screen.getByTestId("auto-router-routing-test-prompt"), { target: { value: "Hello" } });
     fireEvent.click(screen.getByTestId("auto-router-routing-test-send"));
-    expect(await screen.findByText("JEV classifier")).toBeInTheDocument();
+    expect(await screen.findByText("OSS classifier")).toBeInTheDocument();
     expect(screen.getByText("jev-latest")).toBeInTheDocument();
     expect(screen.getByText("80.0%")).toBeInTheDocument();
     expect(screen.getByText("SIMPLE: 80.0%")).toBeInTheDocument();
