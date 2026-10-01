@@ -13,8 +13,7 @@ from litellm.llms.azure_ai.common_utils import (
     api_key_header_for_base,
     get_azure_ai_auth_headers,
 )
-from litellm.llms.azure_ai.image_edit.flux2_transformation import FLUX2_REFERENCE_IMAGE_FIELDS
-from litellm.llms.azure_ai.image_generation.cost_calculator import base64_image_pixels, record_reference_pixels
+from litellm.llms.azure_ai.image_generation.cost_calculator import record_request_reference_pixels
 from litellm.llms.base_llm.ocr.transformation import OCRResponse
 from litellm.llms.base_llm.passthrough.transformation import (
     BasePassthroughConfig,
@@ -37,7 +36,6 @@ if TYPE_CHECKING:
 
 
 EMPTY_QUERY: Final[Mapping[str, object]] = MappingProxyType({})
-_DATA_URL_HEADER_MAX_CHARS: Final = 256
 
 
 def api_version_from(litellm_params: Mapping[str, object]) -> str | None:
@@ -166,7 +164,7 @@ class AzureAIPassthroughConfig(AzureFoundryModelInfo, BasePassthroughConfig):
             return ocr_result
         foundry_result: Final = logged_relay_shape(FOUNDRY_RELAY_SHAPES, httpx_response, logging_obj, endpoint)
         if isinstance(foundry_result, ImageResponse):
-            _record_relayed_reference_pixels(foundry_result, request_data)
+            return record_request_reference_pixels(foundry_result, endpoint, request_data)
         if foundry_result is not None:
             return foundry_result
         return StandardPassThroughResponseObject(response=relayed_body(httpx_response))
@@ -211,21 +209,3 @@ class AzureAIPassthroughConfig(AzureFoundryModelInfo, BasePassthroughConfig):
             custom_llm_provider=custom_llm_provider,
             endpoint=endpoint,
         )
-
-
-def _record_relayed_reference_pixels(image_response: ImageResponse, request_data: Mapping[str, object]) -> None:
-    references: Final = tuple(request_data.get(field) for field in FLUX2_REFERENCE_IMAGE_FIELDS)
-    reference_pixels: Final = tuple(_relayed_image_pixels(value) for value in references if value not in (None, ""))
-    if reference_pixels:
-        record_reference_pixels(image_response, reference_pixels)
-
-
-def _relayed_image_pixels(value: object) -> int | None:
-    if not isinstance(value, str):
-        return None
-    data_url_header, separator, _ = value[:_DATA_URL_HEADER_MAX_CHARS].partition("base64,")
-    return base64_image_pixels(
-        value,
-        start=len(data_url_header) + len(separator) if separator else 0,
-        read_whole_jpeg=False,
-    )

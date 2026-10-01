@@ -233,7 +233,7 @@ def _flex_output_megapixel_rate() -> float:
 
 
 def _flex_reference_megapixel_rate() -> float:
-    return litellm.model_cost["azure_ai/FLUX.2-flex"]["input_cost_per_pixel"] * MEGAPIXEL
+    return litellm.model_cost["azure_ai/FLUX.2-flex"]["input_cost_per_megapixel"]
 
 
 def _edit_ok(request: httpx.Request) -> httpx.Response:
@@ -650,11 +650,9 @@ def test_flux2_pro_image_edit_bills_references_at_the_pro_megapixel_rate():
         size="1024x1024",
     )
 
-    assert pro_row["input_cost_per_pixel"] > 0
+    assert pro_row["input_cost_per_megapixel"] > 0
     assert response._hidden_params["response_cost"] == pytest.approx(
-        pro_row["output_cost_per_image"]
-        + pro_row["output_cost_per_pixel"] * MEGAPIXEL
-        + pro_row["input_cost_per_pixel"] * 2 * MEGAPIXEL
+        pro_row["output_cost_per_image_first_megapixel"] + pro_row["input_cost_per_megapixel"] * 2
     )
 
 
@@ -684,23 +682,42 @@ async def test_flux2_router_image_edit_bills_the_deployment_rates(monkeypatch: p
         size="1024x1280",
     )
 
-    assert response._hidden_params["response_cost"] == pytest.approx(megapixel_rate * 2 * MEGAPIXEL)
+    assert response._hidden_params["response_cost"] == pytest.approx(megapixel_rate * 1024 * 1280)
 
 
 @pytest.mark.parametrize(
     ("deployment_prices", "expected_cost"),
     (
         ({"output_cost_per_image": 0.5}, 0.5),
-        ({"input_cost_per_image": 0.5}, 0.5),
+        ({"input_cost_per_image": 0.5}, "legacy-pro"),
         (
             {"input_cost_per_pixel": 1e-07},
-            1e-07 * 2 * MEGAPIXEL,
+            "legacy-pro",
         ),
         (
             {"output_cost_per_image": 0.5, "input_cost_per_pixel": 1e-07},
-            0.5 + 1e-07 * 2 * MEGAPIXEL,
+            0.5,
         ),
-        ({"output_cost_per_image": 0.5, "output_cost_per_pixel": 1e-07}, 0.5 + 1e-07 * 2 * MEGAPIXEL),
+        ({"output_cost_per_image": 0.5, "output_cost_per_pixel": 1e-07}, 0.5),
+        (
+            {
+                "output_cost_per_image_first_megapixel": 0.5,
+                "output_cost_per_pixel": 0.1 / MEGAPIXEL,
+                "input_cost_per_megapixel": 0.2,
+            },
+            1.0,
+        ),
+        (
+            {
+                "output_cost_per_image_first_megapixel": 0.0,
+                "output_cost_per_pixel": 0.1 / MEGAPIXEL,
+                "input_cost_per_megapixel": 0.2,
+            },
+            0.5,
+        ),
+        ({"output_cost_per_pixel": 0.1 / MEGAPIXEL, "input_cost_per_megapixel": 0.2}, 0.6),
+        ({"output_cost_per_image": 0.0, "input_cost_per_megapixel": 0.2}, 0.4),
+        ({"output_cost_per_pixel": 0.0, "input_cost_per_megapixel": 0.0}, 0.0),
         ({"input_cost_per_second": 0.001}, None),
     ),
     ids=(
@@ -709,11 +726,16 @@ async def test_flux2_router_image_edit_bills_the_deployment_rates(monkeypatch: p
         "per-pixel",
         "image-price-and-pixel-rate",
         "image-price-and-output-pixel-rate",
+        "custom-first-and-additional-megapixels",
+        "free-first-megapixel",
+        "distinct-output-and-reference-megapixels",
+        "free-flat-output-with-paid-references",
+        "free-output-and-references",
         "non-image-price-keeps-catalog",
     ),
 )
 async def test_flux2_router_image_edit_bills_the_deployment_rates_with_a_logger_built_before_routing(
-    monkeypatch: pytest.MonkeyPatch, deployment_prices: Mapping[str, float], expected_cost: float | None
+    monkeypatch: pytest.MonkeyPatch, deployment_prices: Mapping[str, float], expected_cost: float | str | None
 ):
     mock_client: Final = AsyncHTTPHandler()
     mock_client.client = httpx.AsyncClient(transport=httpx.MockTransport(_edit_ok))
@@ -745,13 +767,17 @@ async def test_flux2_router_image_edit_bills_the_deployment_rates_with_a_logger_
     response: Final = await router.aimage_edit(**routed_request, litellm_logging_obj=logging_obj)
     pro_row: Final = litellm.model_cost["azure_ai/flux.2-pro"]
     catalog_cost: Final = (
-        pro_row["output_cost_per_image"]
-        + pro_row["output_cost_per_pixel"] * 2 * MEGAPIXEL
-        + pro_row["input_cost_per_pixel"] * 2 * MEGAPIXEL
+        pro_row["output_cost_per_image_first_megapixel"]
+        + pro_row["output_cost_per_pixel"] * MEGAPIXEL
+        + pro_row["input_cost_per_megapixel"] * 2
     )
 
     assert response._hidden_params["response_cost"] == pytest.approx(
-        catalog_cost if expected_cost is None else expected_cost
+        catalog_cost
+        if expected_cost is None
+        else pro_row["output_cost_per_image"]
+        if expected_cost == "legacy-pro"
+        else expected_cost
     )
 
 
@@ -793,9 +819,9 @@ def test_flux2_image_edit_bills_the_generated_image_azure_returned(size: str | N
     pro_row: Final = litellm.model_cost["azure_ai/flux.2-pro"]
 
     assert response._hidden_params["response_cost"] == pytest.approx(
-        pro_row["output_cost_per_image"]
-        + pro_row["output_cost_per_pixel"] * 2 * MEGAPIXEL
-        + pro_row["input_cost_per_pixel"] * 2 * MEGAPIXEL
+        pro_row["output_cost_per_image_first_megapixel"]
+        + pro_row["output_cost_per_pixel"] * MEGAPIXEL
+        + pro_row["input_cost_per_megapixel"] * 2
     )
 
 

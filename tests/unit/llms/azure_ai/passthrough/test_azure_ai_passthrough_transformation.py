@@ -1,11 +1,15 @@
 import base64
+import io
 import json
+import random
 import struct
 from datetime import datetime
+from typing import Final
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from PIL import Image
 
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
@@ -528,11 +532,11 @@ def test_image_generation_relay_is_costed_per_image():
         AzureAIPassthroughConfig(), "FLUX.2-pro", "openai/deployments/FLUX.2-pro/images/generations", IMAGE_BODY
     )
     row = litellm.get_model_info("azure_ai/FLUX.2-pro")
-    expected_cost = row["output_cost_per_image"] + row["output_cost_per_pixel"] * MEGAPIXEL
+    expected_cost = row["output_cost_per_image_first_megapixel"]
 
     assert isinstance(result, ImageResponse)
     assert logging_obj.call_type == "aimage_generation"
-    assert row["output_cost_per_image"] > 0
+    assert row["output_cost_per_image_first_megapixel"] > 0
     assert logging_obj._response_cost_calculator(result=result) == pytest.approx(expected_cost)
 
 
@@ -541,11 +545,40 @@ def test_flux_2_relay_through_the_provider_route_is_costed_per_image():
         AzureAIPassthroughConfig(), "FLUX.2-pro", "providers/blackforestlabs/v1/flux-2-pro", IMAGE_BODY
     )
     row = litellm.get_model_info("azure_ai/FLUX.2-pro")
-    expected_cost = row["output_cost_per_image"] + row["output_cost_per_pixel"] * MEGAPIXEL
+    expected_cost = row["output_cost_per_image_first_megapixel"]
 
     assert isinstance(result, ImageResponse)
     assert logging_obj.call_type == "aimage_generation"
     assert logging_obj._response_cost_calculator(result=result) == pytest.approx(expected_cost)
+
+
+@pytest.mark.parametrize("leading_spaces", range(4))
+@pytest.mark.parametrize("data_url", (False, True), ids=("base64", "data-url"))
+def test_flux2_wrapped_base64_references_bill_like_the_same_unwrapped_image(
+    leading_spaces: int, data_url: bool
+) -> None:
+    buffer: Final = io.BytesIO()
+    Image.frombytes("RGB", (512, 512), random.Random(0).randbytes(512 * 512 * 3)).save(buffer, format="PNG")
+    plain: Final = base64.b64encode(buffer.getvalue()).decode()
+    wrapped: Final = " " * leading_spaces + "\r\n".join(plain[index : index + 76] for index in range(0, len(plain), 76))
+    prefix: Final = "data:image/png;base64," if data_url else ""
+
+    def cost(encoded: str) -> float:
+        result, logger = _relay_logging_result(
+            AzureAIPassthroughConfig(),
+            "FLUX.2-pro",
+            "providers/blackforestlabs/v1/flux-2-pro",
+            IMAGE_BODY,
+            request_data={"model": "FLUX.2-pro", "prompt": "Make it blue", "input_image": prefix + encoded},
+        )
+        return logger._response_cost_calculator(result=result)
+
+    row: Final = litellm.model_cost["azure_ai/flux.2-pro"]
+    assert (
+        cost(wrapped)
+        == cost(plain)
+        == pytest.approx(row["output_cost_per_image_first_megapixel"] + row["input_cost_per_megapixel"])
+    )
 
 
 def test_flux_2_flex_relay_through_the_provider_route_records_the_references_like_pro():
@@ -630,25 +663,24 @@ def _jpeg_b64(width: int, height: int, metadata_segments: int = 0) -> str:
         ),
     ),
 )
+@pytest.mark.parametrize("model", ("FLUX.2-pro", "media-deployment"))
 def test_flux_2_relay_through_the_provider_route_bills_the_references_in_the_request(
-    references: dict, billed_reference_megapixels: int
+    references: dict, billed_reference_megapixels: int, model: str
 ):
     result, logging_obj = _relay_logging_result(
         AzureAIPassthroughConfig(),
-        "FLUX.2-pro",
+        model,
         "providers/blackforestlabs/v1/flux-2-pro",
         IMAGE_BODY,
         request_data={"model": "FLUX.2-pro", "prompt": "make it blue", **references},
     )
     pro_row = litellm.model_cost["azure_ai/flux.2-pro"]
-    output_megapixel_rate = pro_row["output_cost_per_pixel"] * MEGAPIXEL
-    reference_megapixel_rate = pro_row["input_cost_per_pixel"] * MEGAPIXEL
+    logging_obj.litellm_params["base_model"] = "azure_ai/flux.2-pro"
+    reference_megapixel_rate = pro_row["input_cost_per_megapixel"]
 
     assert isinstance(result, ImageResponse)
     assert logging_obj._response_cost_calculator(result=result) == pytest.approx(
-        pro_row["output_cost_per_image"]
-        + output_megapixel_rate
-        + reference_megapixel_rate * billed_reference_megapixels
+        pro_row["output_cost_per_image_first_megapixel"] + reference_megapixel_rate * billed_reference_megapixels
     )
 
 

@@ -33063,6 +33063,8 @@ export interface components {
             input_cost_per_image_token?: number | null;
             /** Input Cost Per Image Token Batches */
             input_cost_per_image_token_batches?: number | null;
+            /** Input Cost Per Megapixel */
+            input_cost_per_megapixel?: number | null;
             /** Input Cost Per Pixel */
             input_cost_per_pixel?: number | null;
             /** Input Cost Per Query */
@@ -33172,6 +33174,8 @@ export interface components {
             output_cost_per_image_1536?: number | null;
             /** Output Cost Per Image 512 */
             output_cost_per_image_512?: number | null;
+            /** Output Cost Per Image First Megapixel */
+            output_cost_per_image_first_megapixel?: number | null;
             /** Output Cost Per Image Token */
             output_cost_per_image_token?: number | null;
             /** Output Cost Per Pixel */
@@ -46864,6 +46868,8 @@ export interface components {
             input_cost_per_image_token?: number | null;
             /** Input Cost Per Image Token Batches */
             input_cost_per_image_token_batches?: number | null;
+            /** Input Cost Per Megapixel */
+            input_cost_per_megapixel?: number | null;
             /** Input Cost Per Pixel */
             input_cost_per_pixel?: number | null;
             /** Input Cost Per Query */
@@ -46973,6 +46979,8 @@ export interface components {
             output_cost_per_image_1536?: number | null;
             /** Output Cost Per Image 512 */
             output_cost_per_image_512?: number | null;
+            /** Output Cost Per Image First Megapixel */
+            output_cost_per_image_first_megapixel?: number | null;
             /** Output Cost Per Image Token */
             output_cost_per_image_token?: number | null;
             /** Output Cost Per Pixel */

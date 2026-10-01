@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import importlib
+import io
 import json
 import os
 import struct
@@ -19,6 +20,7 @@ from unittest.mock import MagicMock
 import anyio.to_thread
 import pytest
 import tiktoken
+from PIL import Image
 from tokenizers import Regex, Tokenizer, models, pre_tokenizers
 
 from unittest.mock import AsyncMock, patch
@@ -30,7 +32,6 @@ import litellm.constants
 from litellm.constants import TOKEN_COUNTER_MAX_CONCURRENT_COUNTS
 from litellm.litellm_core_utils.asyncify import asyncify
 from litellm.litellm_core_utils.token_counter import (
-    MAX_JPEG_HEADER_SEGMENTS,
     _encoding_count,
     _get_exact_count_function,
     _get_extrapolating_count_function,
@@ -1577,19 +1578,39 @@ def test_image_dimensions_from_bytes_skips_each_segment_by_its_own_length() -> N
     assert image_dimensions_from_bytes(b"\xff\xd8" + b"".join(segments) + _jpeg_sof(800, 600)) == (800, 600)
 
 
-@pytest.mark.parametrize(
-    ("segments_before_frame", "expected"),
-    [
-        pytest.param(MAX_JPEG_HEADER_SEGMENTS - 1, (800, 600), id="frame-is-the-last-segment-read"),
-        pytest.param(MAX_JPEG_HEADER_SEGMENTS, None, id="frame-is-past-the-segment-limit"),
-    ],
-)
-def test_image_dimensions_from_bytes_reads_at_most_the_segment_limit(
-    segments_before_frame: int, expected: tuple[int, int] | None
-) -> None:
+@pytest.mark.parametrize("segments_before_frame", (1023, 1024, 4096))
+def test_image_dimensions_from_bytes_reads_frames_after_many_segments(segments_before_frame: int) -> None:
     image: Final = b"\xff\xd8" + _EMPTY_JPEG_SEGMENT * segments_before_frame + _jpeg_sof(800, 600)
 
-    assert image_dimensions_from_bytes(image) == expected
+    assert image_dimensions_from_bytes(image) == (800, 600)
+
+
+def test_jpeg_comment_segments_do_not_change_public_image_token_counts() -> None:
+    buffer: Final = io.BytesIO()
+    Image.new("RGB", (2048, 1024), "blue").save(buffer, format="JPEG")
+    plain: Final = buffer.getvalue()
+    decorated: Final = plain[:2] + b"\xff\xfe\x00\x02" * 1024 + plain[2:]
+
+    def count(image: bytes) -> int:
+        return litellm.token_counter(
+            model="gpt-6-astra",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/jpeg;base64," + base64.b64encode(image).decode(),
+                                "detail": "high",
+                            },
+                        }
+                    ],
+                }
+            ],
+        )
+
+    assert count(decorated) == count(plain)
 
 
 def test_image_dimensions_from_bytes_reads_a_marker_that_directly_follows_a_segment() -> None:
@@ -1632,10 +1653,6 @@ def test_get_image_dimensions_still_raises_for_a_truncated_header(header: bytes)
     "image",
     [
         pytest.param(b"BM" + b"\x00" * 30, id="unknown-format"),
-        pytest.param(
-            b"\xff\xd8" + _EMPTY_JPEG_SEGMENT * MAX_JPEG_HEADER_SEGMENTS + _jpeg_sof(800, 600),
-            id="too-many-jpeg-segments",
-        ),
     ],
 )
 def test_get_image_dimensions_falls_back_to_the_default_size_for_a_header_it_cannot_read(image: bytes) -> None:

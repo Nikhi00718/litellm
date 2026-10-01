@@ -334,6 +334,10 @@
           "type": "number",
           "minimum": 0
         },
+        "input_cost_per_megapixel": {
+          "type": "number",
+          "minimum": 0
+        },
         "input_cost_per_pixel": {
           "type": "number",
           "minimum": 0
@@ -672,6 +676,10 @@
           "minimum": 0
         },
         "output_cost_per_image_512": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_cost_per_image_first_megapixel": {
           "type": "number",
           "minimum": 0
         },

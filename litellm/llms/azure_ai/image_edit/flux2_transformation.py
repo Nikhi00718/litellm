@@ -2,7 +2,7 @@ import base64
 import contextlib
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 import httpx
 from httpx._types import RequestFiles
@@ -14,7 +14,7 @@ from litellm.llms.azure_ai.common_utils import (
     AzureFoundryModelInfo,
     get_azure_ai_auth_headers,
 )
-from litellm.llms.azure_ai.image_generation.cost_calculator import record_reference_pixels
+from litellm.llms.azure_ai.image_generation.cost_calculator import FLUX2_REFERENCE_IMAGE_FIELDS, record_reference_pixels
 from litellm.llms.azure_ai.image_generation.flux_transformation import (
     AzureFoundryFluxImageGenerationConfig,
 )
@@ -27,8 +27,6 @@ from litellm.types.utils import ImageResponse
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
-
-FLUX2_REFERENCE_IMAGE_FIELDS: Final = ("input_image", *(f"input_image_{index}" for index in range(2, 11)))
 
 
 class AzureFoundryFlux2ImageEditConfig(OpenAIImageEditConfig):
@@ -121,23 +119,27 @@ class AzureFoundryFlux2ImageEditConfig(OpenAIImageEditConfig):
         if len(images) > max_reference_images:
             raise ValueError(f"{model} supports at most {max_reference_images} reference images.")
 
-        reference_bytes: Final = tuple(self._read_image_bytes(model, reference_image) for reference_image in images)
-        self.reference_image_pixels = tuple(
-            _pixel_count(index, image_bytes) for index, image_bytes in enumerate(reference_bytes, start=1)
+        references: Final = tuple(
+            self._encoded_reference(model, index, reference_image)
+            for index, reference_image in enumerate(images, start=1)
         )
+        self.reference_image_pixels = tuple(pixels for _, pixels in references)
         reference_images: Final[Mapping[str, str]] = MappingProxyType(
-            {
-                field: base64.b64encode(image_bytes).decode("utf-8")
-                for field, image_bytes in zip(FLUX2_REFERENCE_IMAGE_FIELDS, reference_bytes, strict=False)
-            }
+            {field: encoded for field, (encoded, _) in zip(FLUX2_REFERENCE_IMAGE_FIELDS, references, strict=False)}
         )
-        request_body: Final[dict[str, Any]] = {
+        request_body: Final[dict[str, object]] = {
             "prompt": prompt,
             "model": model,
             **reference_images,
             **image_edit_optional_request_params,
         }
         return request_body, []
+
+    def _encoded_reference(
+        self, model: str, index: int, image: FileTypes | Sequence[FileTypes]
+    ) -> tuple[str, int | None]:
+        image_bytes: Final = self._read_image_bytes(model, image)
+        return base64.b64encode(image_bytes).decode("utf-8"), _pixel_count(index, image_bytes)
 
     def _read_image_bytes(self, model: str, image: FileTypes | Sequence[FileTypes]) -> bytes:
         if isinstance(image, bytes):

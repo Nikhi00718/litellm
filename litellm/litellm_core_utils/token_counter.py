@@ -54,7 +54,6 @@ from litellm.types.llms.openai import (
 )
 from litellm.types.utils import Message, SelectTokenizerResponse
 
-MAX_JPEG_HEADER_SEGMENTS: Final = 1024
 _JPEG_MARKER_BYTE: Final = re.compile(rb"[^\xff]")
 
 
@@ -299,14 +298,13 @@ def _header_dimensions(img_data: bytes) -> tuple[int, int] | None:
 
 def _jpeg_dimensions(img_data: bytes) -> tuple[int, int] | None:
     position = 2  # rebind-ok: the scan advances one segment per iteration
-    for _ in range(MAX_JPEG_HEADER_SEGMENTS):
+    while True:
         marker_offset = _next_jpeg_marker_offset(img_data, position)
         marker, segment_length = _unpack_ints(">BH", img_data[marker_offset : marker_offset + 3])
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
             h, w = _unpack_ints(">HH", img_data[marker_offset + 4 : marker_offset + 8])
             return w, h
         position = marker_offset + 1 + segment_length
-    return None
 
 
 def _next_jpeg_marker_offset(img_data: bytes, position: int) -> int:
