@@ -21,6 +21,10 @@ from litellm.llms.azure_ai.image_edit.flux2_transformation import AzureFoundryFl
 from litellm.llms.azure_ai.image_edit.transformation import (
     AzureFoundryFluxImageEditConfig,
 )
+from litellm.llms.azure_ai.image_generation.cost_calculator import (
+    JPEG_HEADER_BASE64_PREFIX_CHARS,
+    MAX_LONE_REFERENCE_MEGAPIXELS,
+)
 from litellm.llms.custom_httpx import llm_http_handler as llm_http_handler_module
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.types.utils import ImageResponse
@@ -872,3 +876,31 @@ async def test_concurrent_flux2_image_edits_each_bill_their_own_references():
 
     assert one_megapixel._hidden_params["reference_image_pixels"] == (1024 * 1024,)
     assert four_megapixels._hidden_params["reference_image_pixels"] == (2048 * 2048,)
+
+
+@pytest.mark.parametrize("exceeds_header_budget", (False, True))
+def test_flux2_edit_limits_reference_header_work_without_truncating_uploads(exceeds_header_budget: bool):
+    header_bytes: Final = JPEG_HEADER_BASE64_PREFIX_CHARS // 4 * 3
+    segments: Final = header_bytes // 4 if exceeds_header_budget else 1024
+    reference: Final = b"\xff\xd8" + b"\xff\xfe\x00\x02" * segments + b"\xff\xc0\x00\x08\x08\x04\x00\x04\x00\x00"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert base64.b64decode(json.loads(request.content)["input_image"]) == reference
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(_png(1024, 1024)).decode()}]})
+
+    response: Final = litellm.image_edit(
+        model="azure_ai/flux.2-pro",
+        image=reference,
+        prompt="Make it a watercolor",
+        api_key="test-key",
+        api_base="https://example.services.ai.azure.com",
+        client=HTTPHandler(client=httpx.Client(transport=httpx.MockTransport(respond))),
+        size="1024x1024",
+    )
+    prices: Final = litellm.model_cost["azure_ai/flux.2-pro"]
+    reference_megapixels: Final = MAX_LONE_REFERENCE_MEGAPIXELS if exceeds_header_budget else 1
+
+    assert response._hidden_params["reference_image_pixels"] == ((None,) if exceeds_header_budget else (MEGAPIXEL,))
+    assert response._hidden_params["response_cost"] == pytest.approx(
+        prices["output_cost_per_image_first_megapixel"] + prices["input_cost_per_megapixel"] * reference_megapixels
+    )

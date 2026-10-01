@@ -14,7 +14,11 @@ from litellm.llms.azure_ai.common_utils import (
     AzureFoundryModelInfo,
     get_azure_ai_auth_headers,
 )
-from litellm.llms.azure_ai.image_generation.cost_calculator import FLUX2_REFERENCE_IMAGE_FIELDS, record_reference_pixels
+from litellm.llms.azure_ai.image_generation.cost_calculator import (
+    FLUX2_REFERENCE_IMAGE_FIELDS,
+    JPEG_HEADER_BASE64_PREFIX_CHARS,
+    record_reference_pixels,
+)
 from litellm.llms.azure_ai.image_generation.flux_transformation import (
     AzureFoundryFluxImageGenerationConfig,
 )
@@ -135,13 +139,11 @@ class AzureFoundryFlux2ImageEditConfig(OpenAIImageEditConfig):
         }
         return request_body, []
 
-    def _encoded_reference(
-        self, model: str, index: int, image: FileTypes | Sequence[FileTypes]
-    ) -> tuple[str, int | None]:
+    def _encoded_reference(self, model: str, index: int, image: object) -> tuple[str, int | None]:
         image_bytes: Final = self._read_image_bytes(model, image)
         return base64.b64encode(image_bytes).decode("utf-8"), _pixel_count(index, image_bytes)
 
-    def _read_image_bytes(self, model: str, image: FileTypes | Sequence[FileTypes]) -> bytes:
+    def _read_image_bytes(self, model: str, image: object) -> bytes:
         if isinstance(image, bytes):
             if len(image) == 0:
                 raise litellm.BadRequestError(
@@ -164,14 +166,15 @@ class AzureFoundryFlux2ImageEditConfig(OpenAIImageEditConfig):
                 model=model,
                 llm_provider="azure_ai",
             )
-        if len(image_data) == 0:
+        normalized_data: Final = image_data.tobytes() if isinstance(image_data, memoryview) else bytes(image_data)
+        if len(normalized_data) == 0:
             raise litellm.BadRequestError(
                 message=f"FLUX.2 reference image read from {type(image).__name__} is empty. A stream that can't "
                 "seek is consumed by the first attempt, so pass bytes or a seekable file to allow retries",
                 model=model,
                 llm_provider="azure_ai",
             )
-        return bytes(image_data)
+        return normalized_data
 
     def transform_image_edit_response(
         self,
@@ -226,7 +229,8 @@ def _rewind(image: object) -> None:
 
 
 def _pixel_count(index: int, image_bytes: bytes) -> int | None:
-    pixels: Final = image_pixels_from_bytes(image_bytes)
+    header: Final = image_bytes[: JPEG_HEADER_BASE64_PREFIX_CHARS // 4 * 3]
+    pixels: Final = image_pixels_from_bytes(header)
     if pixels is None:
         verbose_logger.debug(
             "FLUX.2 reference image %d (%d bytes, detected type %s) has no readable dimensions",

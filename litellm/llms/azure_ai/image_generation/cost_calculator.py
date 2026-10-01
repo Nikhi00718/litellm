@@ -42,7 +42,7 @@ def registered_image_prices(
     legacy_override: Final = any(overrides.get(key) is not None for key in legacy_fields)
     megapixel_override: Final = any(overrides.get(key) is not None for key in _MEGAPIXEL_PRICE_KEYS)
     if legacy_override and not megapixel_override:
-        return {**merged, **dict.fromkeys(_MEGAPIXEL_PRICE_KEYS)}
+        return MappingProxyType({**merged, **dict.fromkeys(_MEGAPIXEL_PRICE_KEYS)})
     return merged
 
 
@@ -82,9 +82,11 @@ def _flux2_prices(resolved: ModelInfo, deployment: ModelInfo | None) -> _Flux2Pr
         "input_cost_per_image",
         "input_cost_per_pixel",
     )
-    deployment_prices: Final = {key: _deployment_price(deployment, key) for key in price_keys}
+    deployment_prices: Final = MappingProxyType({key: _deployment_price(deployment, key) for key in price_keys})
     deployment_priced: Final = any(price is not None for price in deployment_prices.values())
-    prices: Final = {key: deployment_prices[key] if deployment_priced else _price(resolved, key) for key in price_keys}
+    prices: Final = MappingProxyType(
+        {key: deployment_prices[key] if deployment_priced else _price(resolved, key) for key in price_keys}
+    )
     if all(prices[key] is None for key in _MEGAPIXEL_PRICE_KEYS):
         return None
     first_megapixel: Final = prices["output_cost_per_image_first_megapixel"]
