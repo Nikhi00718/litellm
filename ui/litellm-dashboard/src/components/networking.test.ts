@@ -180,6 +180,19 @@ describe("daily activity helpers", () => {
     global.fetch = currentFetch;
   });
 
+  it("sends customer filters and the date range to the aggregated endpoint", async () => {
+    const mockFetch = setupSuccessfulFetch();
+
+    await Networking.customerDailyActivityAggregatedCall("token", startTime, endTime, ["customer-a", "customer-b"]);
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const url = new URL(mockFetch.mock.calls[0][0] as string, "http://example.com");
+    expect(url.pathname).toBe("/customer/daily/activity/aggregated");
+    expect(url.searchParams.get("end_user_ids")).toBe("customer-a,customer-b");
+    expect(url.searchParams.get("start_date")).toBe(Networking.formatDate(startTime));
+    expect(url.searchParams.get("end_date")).toBe(Networking.formatDate(endTime));
+  });
+
   it("appends tag list when tags argument is provided", async () => {
     const mockFetch = setupSuccessfulFetch();
 

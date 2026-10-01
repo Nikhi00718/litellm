@@ -3969,11 +3969,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Customer Daily Activity
-         * @description Get daily activity for specific organizations or all accessible organizations.
-         */
+        /** Get Customer Daily Activity */
         get: operations["get_customer_daily_activity_customer_daily_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customer/daily/activity/aggregated": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Customer Daily Activity Aggregated */
+        get: operations["get_customer_daily_activity_aggregated_customer_daily_activity_aggregated_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4529,10 +4543,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Customer Daily Activity
-         * @description Get daily activity for specific organizations or all accessible organizations.
-         */
+        /** Get Customer Daily Activity */
         get: operations["get_customer_daily_activity_end_user_daily_activity_get"];
         put?: never;
         post?: never;
@@ -54570,6 +54581,42 @@ export interface operations {
             };
         };
     };
+    get_customer_daily_activity_aggregated_customer_daily_activity_aggregated_get: {
+        parameters: {
+            query?: {
+                end_user_ids?: string | null;
+                start_date?: string | null;
+                end_date?: string | null;
+                model?: string | null;
+                api_key?: string | null;
+                exclude_end_user_ids?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendAnalyticsPaginatedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_end_user_customer_delete_post: {
         parameters: {
             query?: never;
@@ -55153,7 +55200,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SpendAnalyticsPaginatedResponse"];
                 };
             };
             /** @description Validation Error */

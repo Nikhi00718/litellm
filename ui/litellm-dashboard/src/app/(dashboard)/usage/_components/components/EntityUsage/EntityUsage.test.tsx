@@ -56,6 +56,7 @@ vi.mock("@/components/networking", () => ({
   teamDailyActivityAggregatedCall: vi.fn(),
   organizationDailyActivityCall: vi.fn(),
   customerDailyActivityCall: vi.fn(),
+  customerDailyActivityAggregatedCall: vi.fn(),
   agentDailyActivityCall: vi.fn(),
   userDailyActivityCall: vi.fn(),
 }));
@@ -143,6 +144,7 @@ describe("EntityUsage", () => {
   const mockTeamDailyActivityAggregatedCall = vi.mocked(networking.teamDailyActivityAggregatedCall);
   const mockOrganizationDailyActivityCall = vi.mocked(networking.organizationDailyActivityCall);
   const mockCustomerDailyActivityCall = vi.mocked(networking.customerDailyActivityCall);
+  const mockCustomerDailyActivityAggregatedCall = vi.mocked(networking.customerDailyActivityAggregatedCall);
   const mockAgentDailyActivityCall = vi.mocked(networking.agentDailyActivityCall);
   const mockUserDailyActivityCall = vi.mocked(networking.userDailyActivityCall);
   const mockUseInfiniteUsers = vi.mocked(useInfiniteUsers);
@@ -445,6 +447,7 @@ describe("EntityUsage", () => {
     mockTeamDailyActivityAggregatedCall.mockClear();
     mockOrganizationDailyActivityCall.mockClear();
     mockCustomerDailyActivityCall.mockClear();
+    mockCustomerDailyActivityAggregatedCall.mockClear();
     mockAgentDailyActivityCall.mockClear();
     mockUserDailyActivityCall.mockClear();
     mockTagDailyActivityCall.mockResolvedValue(mockSpendData);
@@ -452,6 +455,7 @@ describe("EntityUsage", () => {
     mockTeamDailyActivityAggregatedCall.mockResolvedValue(mockSpendData);
     mockOrganizationDailyActivityCall.mockResolvedValue(mockSpendData);
     mockCustomerDailyActivityCall.mockResolvedValue(mockSpendData);
+    mockCustomerDailyActivityAggregatedCall.mockResolvedValue(mockSpendData);
     mockAgentDailyActivityCall.mockResolvedValue(mockAgentSpendData);
     mockUserDailyActivityCall.mockResolvedValue(mockSpendData);
     mockUseInfiniteUsers.mockClear();
@@ -581,19 +585,34 @@ describe("EntityUsage", () => {
     });
   });
 
-  it("should render with customer entity type and call customer API", async () => {
+  it("shows customer totals from one aggregated response without fetching pages", async () => {
     render(<EntityUsage {...defaultProps} entityType="customer" />);
 
-    await waitFor(() => {
-      expect(mockCustomerDailyActivityCall).toHaveBeenCalled();
-    });
-
+    expect(await screen.findAllByText("$100.50")).not.toHaveLength(0);
     expect(screen.getByText("Customer Spend Overview")).toBeInTheDocument();
+    expect(mockCustomerDailyActivityAggregatedCall).toHaveBeenCalledExactlyOnceWith(
+      defaultProps.accessToken,
+      defaultProps.dateValue.from,
+      defaultProps.dateValue.to,
+      null,
+    );
+    expect(mockCustomerDailyActivityCall).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Currently fetching spend data/)).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      const spendElements = screen.getAllByText("$100.50");
-      expect(spendElements.length).toBeGreaterThan(0);
-    });
+  it("shows customer totals through pagination when aggregation is unavailable", async () => {
+    mockCustomerDailyActivityAggregatedCall.mockRejectedValue(new Error("aggregated unavailable"));
+
+    render(<EntityUsage {...defaultProps} entityType="customer" />);
+
+    expect(await screen.findAllByText("$100.50")).not.toHaveLength(0);
+    expect(mockCustomerDailyActivityCall).toHaveBeenCalledExactlyOnceWith(
+      defaultProps.accessToken,
+      defaultProps.dateValue.from,
+      defaultProps.dateValue.to,
+      1,
+      null,
+    );
   });
 
   it("should render with agent entity type and call agent API", async () => {

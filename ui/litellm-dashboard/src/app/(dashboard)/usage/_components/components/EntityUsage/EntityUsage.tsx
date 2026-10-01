@@ -29,6 +29,7 @@ import { getExportBlockedReason } from "@/components/EntityUsageExport/exportBlo
 import type { EntityType } from "@/components/EntityUsageExport/types";
 import {
   agentDailyActivityCall,
+  customerDailyActivityAggregatedCall,
   customerDailyActivityCall,
   organizationDailyActivityCall,
   tagDailyActivityCall,
@@ -104,6 +105,7 @@ const ENTITY_FETCH_FNS: Record<EntityType, (...args: any[]) => Promise<any>> = {
 // without one fall back to page-draining the paginated endpoint.
 const ENTITY_AGGREGATED_FETCH_FNS: Partial<Record<EntityType, (...args: any[]) => Promise<any>>> = {
   team: teamDailyActivityAggregatedCall,
+  customer: customerDailyActivityAggregatedCall,
 };
 
 const ENTITY_CAPABILITIES: Partial<Record<EntityType, Capability>> = {

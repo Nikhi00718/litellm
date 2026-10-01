@@ -12,7 +12,8 @@ All /customer management endpoints
 #### END-USER/CUSTOMER MANAGEMENT ####
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Final, Protocol, TypeVar, overload
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Annotated, Final, Protocol, TypeVar, overload
 
 import fastapi
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -33,7 +34,7 @@ from litellm.proxy.common_utils.user_api_key_cache import (
     end_user_cache_key,
     end_user_restricted_registry_cache_key,
 )
-from litellm.proxy.management_endpoints.common_daily_activity import get_daily_activity
+from litellm.proxy.management_endpoints.common_daily_activity import get_daily_activity, get_daily_activity_aggregated
 from litellm.proxy.management_endpoints.common_utils import validate_budget_duration
 from litellm.proxy.management_helpers.object_permission_utils import (
     _set_object_permission,
@@ -884,10 +885,62 @@ async def get_customer_daily_activity(
     page_size: int = 10,
     exclude_end_user_ids: str | None = None,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
-):
-    """
-    Get daily activity for specific organizations or all accessible organizations.
-    """
+) -> SpendAnalyticsPaginatedResponse:
+    return await _customer_daily_activity(
+        user_api_key_dict=user_api_key_dict,
+        end_user_ids=end_user_ids,
+        start_date=start_date,
+        end_date=end_date,
+        model=model,
+        api_key=api_key,
+        exclude_end_user_ids=exclude_end_user_ids,
+        page=page,
+        page_size=page_size,
+        aggregate=False,
+    )
+
+
+@router.get(
+    "/customer/daily/activity/aggregated",
+    tags=["Customer Management"],
+    response_model=SpendAnalyticsPaginatedResponse,
+)
+async def get_customer_daily_activity_aggregated(
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    end_user_ids: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    exclude_end_user_ids: str | None = None,
+) -> SpendAnalyticsPaginatedResponse:
+    return await _customer_daily_activity(
+        user_api_key_dict=user_api_key_dict,
+        end_user_ids=end_user_ids,
+        start_date=start_date,
+        end_date=end_date,
+        model=model,
+        api_key=api_key,
+        exclude_end_user_ids=exclude_end_user_ids,
+        page=1,
+        page_size=10,
+        aggregate=True,
+    )
+
+
+async def _customer_daily_activity(
+    *,
+    user_api_key_dict: UserAPIKeyAuth,
+    end_user_ids: str | None,
+    start_date: str | None,
+    end_date: str | None,
+    model: str | None,
+    api_key: str | None,
+    exclude_end_user_ids: str | None,
+    page: int,
+    page_size: int,
+    aggregate: bool,
+) -> SpendAnalyticsPaginatedResponse:
     if (
         user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN
         and user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY
@@ -905,25 +958,37 @@ async def get_customer_daily_activity(
             detail={"error": CommonProxyErrors.db_not_connected_error.value},
         )
 
-    # Parse comma-separated ids
     end_user_ids_list: Final = end_user_ids.split(",") if end_user_ids else None
-    exclude_end_user_ids_list: list[str] | None = None
-    if exclude_end_user_ids:
-        exclude_end_user_ids_list = exclude_end_user_ids.split(",") if exclude_end_user_ids else None
-
-    # Fetch organization aliases for metadata
-    where_condition: Final = dict[str, object]()
-    if end_user_ids_list:
-        where_condition["user_id"] = {"in": list(end_user_ids_list)}
+    exclude_end_user_ids_list: Final = exclude_end_user_ids.split(",") if exclude_end_user_ids else None
+    where_condition: Final = (
+        {"user_id": {"in": end_user_ids_list}} if end_user_ids_list else {}  # mutable-ok: Prisma requires dicts
+    )
     end_user_aliases: Final = await _typed_table(EndUserRepository(prisma_client)).find_many(where=where_condition)
 
-    # Query daily activity for organizations
+    entity_metadata: Final[Mapping[str, dict[str, object]]] = MappingProxyType(
+        {e.user_id: {"alias": e.alias} for e in end_user_aliases}
+    )
+    if aggregate:
+        return await get_daily_activity_aggregated(
+            prisma_client=prisma_client,
+            table_name="litellm_dailyenduserspend",
+            entity_id_field="end_user_id",
+            entity_id=end_user_ids_list,
+            entity_metadata_field=entity_metadata,
+            exclude_entity_ids=exclude_end_user_ids_list,
+            start_date=start_date,
+            end_date=end_date,
+            model=model,
+            api_key=api_key,
+            include_entity_breakdown=True,
+        )
+
     return await get_daily_activity(
         prisma_client=prisma_client,
         table_name="litellm_dailyenduserspend",
         entity_id_field="end_user_id",
         entity_id=end_user_ids_list,
-        entity_metadata_field={e.user_id: {"alias": e.alias} for e in end_user_aliases},
+        entity_metadata_field=entity_metadata,
         exclude_entity_ids=exclude_end_user_ids_list,
         start_date=start_date,
         end_date=end_date,

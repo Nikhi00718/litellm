@@ -1504,6 +1504,24 @@ export const organizationDailyActivityCall = async (
   });
 };
 
+export const customerDailyActivityAggregatedCall = async (
+  accessToken: string,
+  startTime: Date,
+  endTime: Date,
+  customerIds: string[] | null = null,
+) => {
+  const request = {
+    accessToken,
+    endpoint: "/customer/daily/activity/aggregated",
+    startTime,
+    endTime,
+    extraQueryParams: {
+      end_user_ids: customerIds,
+    },
+  };
+  return fetchDailyActivity(request);
+};
+
 export const customerDailyActivityCall = async (
   accessToken: string,
   startTime: Date,

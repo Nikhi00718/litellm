@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from typing import Final
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -858,9 +859,7 @@ def test_char_new_body(mock_prisma_client, mock_user_api_key_auth):
 
 
 @pytest.mark.parametrize("bad_duration", ["0s", "-5m"])
-def test_customer_new_rejects_a_duration_that_never_advances(
-    mock_prisma_client, mock_user_api_key_auth, bad_duration
-):
+def test_customer_new_rejects_a_duration_that_never_advances(mock_prisma_client, mock_user_api_key_auth, bad_duration):
     """A zero-length window resets to "now", leaving the customer's budget row
     permanently due for the reset job to re-read every tick."""
     mock_prisma_client.db.litellm_endusertable.create = AsyncMock(return_value=_row(_FULL_DB_ROW))
@@ -1049,3 +1048,21 @@ def test_customer_delete_invalidates_end_user_and_registry_caches(mock_prisma_cl
         "end_user_id:c2",
         "end_user_restricted_registry",
     ]
+
+
+@pytest.mark.parametrize("user_id", ["regular-user", None])
+def test_customer_aggregated_activity_rejects_non_admins(user_id: str | None) -> None:
+    original_overrides: Final = app.dependency_overrides.copy()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_id=user_id, user_role=LitellmUserRoles.INTERNAL_USER
+    )
+    try:
+        response: Final = client.get(
+            "/customer/daily/activity/aggregated",
+            params={"start_date": "2026-01-01", "end_date": "2026-01-02"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"]["error"].startswith("Admin-only endpoint")
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(original_overrides)
